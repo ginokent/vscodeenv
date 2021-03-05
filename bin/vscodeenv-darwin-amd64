@@ -1,0 +1,360 @@
+#!/usr/bin/env bash
+set -eu
+[ "${BASH_VERSINFO[0]}" -ge 3 ] && set -E -o pipefail
+export IFS=$'\n\t'
+export LC_ALL=C
+
+# export for func
+[ "${LOG_DISABLECOLOR:-}" ] || export enablecolor=true
+export  pipe_debug="awk \"{print \\\"${enablecolor:+\\\\033[0;34m}\$(date +%Y-%m-%dT%H:%M:%S%z) [ debug] \\\"\\\$0\\\"${enablecolor:+\\\\033[0m}\\\"}\" /dev/stdin"
+export   pipe_info="awk \"{print \\\"${enablecolor:+\\\\033[0;32m}\$(date +%Y-%m-%dT%H:%M:%S%z) [  info] \\\"\\\$0\\\"${enablecolor:+\\\\033[0m}\\\"}\" /dev/stdin"
+export pipe_notice="awk \"{print \\\"${enablecolor:+\\\\033[0;36m}\$(date +%Y-%m-%dT%H:%M:%S%z) [notice] \\\"\\\$0\\\"${enablecolor:+\\\\033[0m}\\\"}\" /dev/stdin"
+export   pipe_warn="awk \"{print \\\"${enablecolor:+\\\\033[0;33m}\$(date +%Y-%m-%dT%H:%M:%S%z) [  warn] \\\"\\\$0\\\"${enablecolor:+\\\\033[0m}\\\"}\" /dev/stdin"
+export  pipe_error="awk \"{print \\\"${enablecolor:+\\\\033[0;31m}\$(date +%Y-%m-%dT%H:%M:%S%z) [ error] \\\"\\\$0\\\"${enablecolor:+\\\\033[0m}\\\"}\" /dev/stdin"
+export   pipe_crit="awk \"{print \\\"${enablecolor:+\\\\033[1;31m}\$(date +%Y-%m-%dT%H:%M:%S%z) [  crit] \\\"\\\$0\\\"${enablecolor:+\\\\033[0m}\\\"}\" /dev/stdin"
+
+# func
+export severity="${LOG_SEVERITY:--1}"
+Debugln  () { [ "${severity:--1}" -gt 100 ] 2>/dev/null || echo "$*" | bash -c "${pipe_debug:?}"  1>&2; }
+Infoln   () { [ "${severity:--1}" -gt 200 ] 2>/dev/null || echo "$*" | bash -c "${pipe_info:?}"   1>&2; }
+Noticeln () { [ "${severity:--1}" -gt 300 ] 2>/dev/null || echo "$*" | bash -c "${pipe_notice:?}" 1>&2; }
+Warnln   () { [ "${severity:--1}" -gt 400 ] 2>/dev/null || echo "$*" | bash -c "${pipe_warn:?}"   1>&2; }
+Errorln  () { [ "${severity:--1}" -gt 500 ] 2>/dev/null || echo "$*" | bash -c "${pipe_error:?}"  1>&2; }
+Critln   () { [ "${severity:--1}" -gt 600 ] 2>/dev/null || echo "$*" | bash -c "${pipe_crit:?}"   1>&2; }
+Run      () { Debugln "$ $(s=" "; i=1; for a in "$@"; do if [ $i = $# ]; then s=""; fi; if echo "$a" | grep -Eq "[[:blank:]]"; then printf "'%s'$s" "$a"; else printf "%s$s" "$a"; fi; done;)"; "$@"; }
+Catch    () { err=$?; rm -rf "${HOME_TMP_DIR:-/tmp/${PROG_NAME:?}/no/such/file/or/directory}"; Errorln "exit ${err-}"; return ${err-}; } && trap Catch ERR
+CommandNotFound () { ! command -v "${1:?"CommandNotFound: \$1 as command is required"}" >/dev/null; }
+
+# const
+PROG_NAME=vscodeenv
+VSCODE_DOWNLOAD_URL_PREFIX="https://update.code.visualstudio.com"
+NOT_FOUND_VERSIONS=("0\.10\.1" "0\.10\.6" "1\.7\.0")  # NOTE: git ls-remote --tags https://github.com/microsoft/vscode | grep -Eo "refs/tags/[0-9]+\.[0-9]+\.[0-9]+$" | sed "s@refs/tags/\(.*\)@https://update.code.visualstudio.com/\1/darwin/stable@" | sort -V | while read -r LINE; do echo "$LINE $(curl -ILsS -o /dev/null -w "%{http_code}" $LINE)"; done | grep -v "200$"
+DATA_DIR="${HOME:?}/.${PROG_NAME:?}"
+ARCHIVES_DIR="${DATA_DIR:?}/archives"
+HOME_TMP_DIR="${DATA_DIR:?}/tmp"
+BACKUP_DIR="${DATA_DIR:?}/backup"
+VERSION_REGEX="[0-9]+\.[0-9]+\.[0-9]+"
+UPDATE_URL="https://github.com/djeeno/${PROG_NAME:?}/releases/latest/download/${PROG_NAME:?}"
+UPDATE_DL_TMP="/tmp/.${PROG_NAME:?}.tmp"
+
+# const darwin
+VISUAL_STUDIO_CODE="Visual Studio Code"
+APPLICATIONS="/Applications"
+VISUAL_STUDIO_CODE_APP="${VISUAL_STUDIO_CODE:?}.app"
+APPLICATIONS_VISUAL_STUDIO_CODE_APP="${APPLICATIONS:?}/${VISUAL_STUDIO_CODE_APP:?}"
+CODE_BIN="${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}/Contents/Resources/app/bin/code"
+CODE_BIN_SYMBOLIC_LINK="/usr/local/bin/code"
+
+# var
+lower_uname_s=$(uname -s | tr "[:upper:]" "[:lower:]")
+channel="${CHANNEL:-stable}"
+vscode_download_url_suffix="${lower_uname_s:?}/${channel:?}"
+grep_cond_not_found_versions=$(i=0; for version in "${NOT_FOUND_VERSIONS[@]}"; do i=$((i+1)); echo -n "${version:?}"; [[ $i -ge ${#NOT_FOUND_VERSIONS[@]} ]] || echo -n "|"; done;)  # NOTE: like this: "0.10.1|0.10.6|1.7.0"
+version_list=""
+url_list=""
+
+__commandRequired () {
+  if CommandNotFound "${1:?}"; then
+    Errorln "'${1:?}' is required"
+    exit 1
+  fi
+}
+
+__init () {
+  __commandRequired wget
+  __commandRequired git
+
+  mkdir -p "${ARCHIVES_DIR:?}"
+}
+
+__resetTmpDir () {
+  tmp_dir=${1:?}
+  rm -rf "${tmp_dir:?}"
+  mkdir -p "${tmp_dir:?}"
+}
+
+__getVersionList () {
+  [[ "${version_list-}" ]] || version_list=$(git ls-remote --tags https://github.com/microsoft/vscode |
+    grep -Eo "refs/tags/${VERSION_REGEX:?}$" |
+    sed "s@refs/tags/@@" |
+    sort -V |
+    grep -Ev "^(${grep_cond_not_found_versions:?})$"
+    # string "latest" is also treated as version
+    echo latest
+  )
+  echo "${version_list:?}"
+}
+
+__getURLList () {
+  [[ "${url_list-}" ]] || url_list=$(__getVersionList | awk "{print \"${VSCODE_DOWNLOAD_URL_PREFIX:?}/\"\$0\"/${vscode_download_url_suffix:?}\"}")
+  echo "${url_list:?}"
+}
+
+__getVersionURLExit0 () {
+  version="${1:?}"
+  __getURLList | grep "/${version:?}/" || true
+}
+
+__getLatestVersion () {
+  __getVersionList | tail -n 1
+}
+
+__getZipDestinationPath () {
+  version="${1:?}"
+  printf "%s" "${ARCHIVES_DIR:?}/VSCode-${version:?}-${lower_uname_s:?}.zip"
+}
+
+__extractVersionExit0 () {
+  echo "${1:-}" | grep -Eo "${VERSION_REGEX:?}|latest" || true
+}
+
+__currentVersion () {
+  __extractVersionExit0 "$("${CODE_BIN:?}" --version 2>/dev/null)"
+}
+
+__wget () {
+  source_url="${1:?}"
+  destination_path="${2:?}"
+  shift && shift
+  Infoln "download ${source_url:?} -> ${destination_path:?}"
+  Run wget "${source_url:?}" --output-document="${destination_path:?}" "$@"
+}
+
+__unzipWithResetTmpDir () {
+  zip_path="${1:?}"
+  unzip_tmp_path="${2:?}"
+  __resetTmpDir "${unzip_tmp_path:?}"
+  Infoln "unzip '${zip_path:?}' -> '${unzip_tmp_path:?}/${VISUAL_STUDIO_CODE_APP:?}'"
+  Run unzip -q -o "${zip_path:?}" -d "${unzip_tmp_path:?}" "${VISUAL_STUDIO_CODE_APP:?}/*"
+}
+
+__mustGetVersion () {
+  if [[ ${1-} =~ (^|.*[^[:graph:]]+)(-f|--force)([^[:graph:]]+.*|$) ]]; then
+    # If fource option, shift argument
+    shift
+  fi
+
+  version="${1-}"
+
+  # NOTE: https://stackoverflow.com/questions/19120263/why-exit-code-141-with-grep-q
+  if __getVersionList | grep -E "^${version-}$" >/dev/null; then
+    echo "${version:?}"
+  elif [[ -n ${version-} ]]; then
+    Errorln "version not found: ${version-}"
+    Errorln "check the available versions: $0 list"
+    exit 1
+  else
+    Infoln "no version was specified. use latest version"
+    __getLatestVersion
+  fi
+}
+
+__mustGetSpecificVersionURL () {
+  version="${1:?}"
+  url=$(__getVersionURLExit0 "${version:?}")
+  if [[ "${url-}" ]]; then
+    echo "${url:?}"
+  else
+    Errorln "version not found: ${version-}"
+    Errorln "check the available versions: $0 list"
+    exit 1
+  fi
+}
+
+__createCodeBinSymbolicLink () {
+  if [[ -f "${CODE_BIN:?}" ]]; then
+    if [[ ! -L ${CODE_BIN_SYMBOLIC_LINK:?} ]] && [[ ! -f ${CODE_BIN_SYMBOLIC_LINK:?} ]]; then
+      Infoln "create symblic link '${CODE_BIN:?}' -> '${CODE_BIN_SYMBOLIC_LINK:?}'"
+      Run ln -sf "${CODE_BIN:?}" "${CODE_BIN_SYMBOLIC_LINK:?}"
+    elif [[ $(wc -c < "${CODE_BIN:?}") -eq $(wc -c < "${CODE_BIN_SYMBOLIC_LINK:?}") ]]; then
+      # If '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' size == '/usr/local/bin/code' size
+      return 0
+    else
+      Warnln "'${CODE_BIN_SYMBOLIC_LINK:?}' already exists"
+    fi
+  fi
+}
+
+
+__existsApplicationsVisualStudioCodeApp () {
+  [[ -L "${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}" ]] || [[ -d "${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}" ]]
+}
+
+
+__launch () {
+  Infoln "launch '${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}'"
+  Run open -a "${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}"
+}
+
+__currentVersionExit0 () {
+  Infoln "current version"
+  Run "${CODE_BIN:?}" --version || true
+}
+
+__hasOptionListExtensions () {
+  "${CODE_BIN:?}" --help 2>&1 | grep -q -- "--list-extensions"
+}
+
+__hasOptionShowVersions () {
+  # NOTE: '--show-versions' option -> 1.7.1 or later
+  "${CODE_BIN:?}" --help 2>&1 | grep -q -- "--show-versions"
+}
+
+__generateInstallCommand () {
+  currentVersion=$(__currentVersion)
+
+  if "${CODE_BIN:?}" --help >/dev/null 2>&1; then
+    echo "${PROG_NAME:?} install ${currentVersion:?} --force"
+    return 0
+  else
+    echo "# !!! ${PROG_NAME:?} does not support to lock version on this ${VISUAL_STUDIO_CODE:?} version !!!"
+    return 0
+  fi
+}
+
+__generateExtensionsInstallCommands () {
+  if __hasOptionListExtensions; then
+    if __hasOptionShowVersions; then
+      # --list-extensions AND --show-versions
+      "${CODE_BIN:?}" --list-extensions --show-versions | sort -V | awk "{print \"code --install-extension \"\$0\" --force\"}"
+      return $?
+    fi
+    # --list-extensions ONLY
+    "${CODE_BIN:?}" --list-extensions | sort -V | awk "{print \"code --install-extension \"\$0\" --force\"}"
+    return $?
+  else
+    echo "# !!! ${PROG_NAME:?} does not support to lock the extensions version on this ${VISUAL_STUDIO_CODE:?} version !!!"
+    return 0
+  fi
+}
+
+__freeze () {
+  installCommand=$(__generateInstallCommand)
+  extensionsInstallCommands=$(__generateExtensionsInstallCommands)
+  cat <<BASH
+#!/bin/bash
+set -E -e -u -o pipefail
+
+# ${VISUAL_STUDIO_CODE:?}
+${installCommand:?}
+
+# Extensions
+${extensionsInstallCommands:?}
+BASH
+}
+
+__install () {
+  version=$(__mustGetVersion "${1-}")
+  source_url=$(__mustGetSpecificVersionURL "${version:?}")
+  destination_path=$(__getZipDestinationPath "${version:?}")
+
+  if __existsApplicationsVisualStudioCodeApp; then
+    Warnln "'${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}' already installed"
+    __currentVersionExit0
+    if ! [[ $* =~ (^|.*[^[:graph:]]+)(-f|--force)([^[:graph:]]+.*|$) ]]; then
+      # If force option is false,
+      __launch
+      return 0
+    fi
+  fi
+
+  Infoln "install '${VISUAL_STUDIO_CODE_APP:?}' version ${version:?}"
+
+  # download and unzip
+  __wget "${source_url:?}" "${destination_path:?}" --continue
+  if ! __unzipWithResetTmpDir "${destination_path:?}" "${HOME_TMP_DIR:?}"; then
+    Warnln "failed to unzip ${destination_path:?}, retry to download ${source_url:?}"
+    # retry once "wget" without "--continue" option
+    __wget "${source_url:?}" "${destination_path:?}"
+    if ! __unzipWithResetTmpDir "${destination_path:?}" "${HOME_TMP_DIR:?}"; then
+      Errorln "failed to unzip ${destination_path:?}"
+      exit 1
+    fi
+  fi
+
+  # backup
+  if __existsApplicationsVisualStudioCodeApp; then
+    __resetTmpDir "${BACKUP_DIR:?}"
+    Infoln "backup '${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}' -> ${BACKUP_DIR:?}"
+    Run mv "${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}" "${BACKUP_DIR:?}"
+  fi
+
+  # mv
+  Infoln "install '${HOME_TMP_DIR:?}/${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}' -> '${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}'"
+  Run mv "${HOME_TMP_DIR:?}/${VISUAL_STUDIO_CODE_APP:?}" "${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}"
+
+  # ln -s
+  __createCodeBinSymbolicLink
+
+  __currentVersionExit0
+  __launch
+}
+
+__list () {
+  if [[ $* =~ [^[:graph:]]+(-1|--one-column)([^[:graph:]]+.*|[^[:graph:]]*$) ]]; then
+    __getVersionList
+    return 0
+  fi
+  __getVersionList | column
+}
+
+__kill () {
+  Run bash -c "pgrep -f \"${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}\" | xargs kill"
+}
+
+__selfUpdate () {
+  Infoln "self update"
+  cmd="wget \"${UPDATE_URL:?}\" --output-document=\"${UPDATE_DL_TMP:?}\"; chmod -v +x \"${UPDATE_DL_TMP:?}\"; mv \"${UPDATE_DL_TMP:?}\" \"$0\""
+  if [[ -w $0 ]] || { [[ -w $(dirname "$0") ]] && [[ ! -e $0 ]]; }; then Run bash -c "${cmd:?}"; else Run sudo -u root bash -c "${cmd:?}"; fi
+  Infoln "updated"
+}
+
+__usage () {
+  cat <<USAGE
+
+${PROG_NAME:?} is a tool for helping to install specific version '${VISUAL_STUDIO_CODE:?}'
+
+Usage:
+
+  ${PROG_NAME:?} <command> [arguments]
+
+The commands are:
+
+    freeze      Generate version lock script
+
+    install     Install specific version '${VISUAL_STUDIO_CODE:?}'
+
+                arguments
+                    <version>
+                        '${VISUAL_STUDIO_CODE:?}' version
+                        If not given, install latest version
+                options
+                    -f, --fource
+                        Fource install
+
+    kill        Kill '${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}'
+
+    list        List installable '${VISUAL_STUDIO_CODE:?}' versions
+
+                arguments
+                    -1, --one-column
+                        If you want to output a single column, add this option
+
+    self-update Update '${PROG_NAME:?}' itself
+
+USAGE
+}
+
+__main () {
+  # subcommand
+  case "${1-}" in
+    (   freeze|f) __init; shift; __freeze     "$@" ;;
+    (  install|i) __init; shift; __install    "$@" ;;
+    (       kill) __init; shift; __kill       "$@" ;;
+    (     list|l) __init; shift; __list       "$@" ;;
+    (self-update) __init; shift; __selfUpdate "$@" ;;
+    (          *) __usage ;;
+  esac
+}
+
+__main "$@"
