@@ -59,7 +59,7 @@ $ vscodeenv freeze
 set -eu
 
 # Visual Studio Code
-vscodeenv install 1.54.1 --force
+vscodeenv install 1.54.1
 
 # Extensions
 code --install-extension Unity.unity-debug@3.0.2 --force
