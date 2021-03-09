@@ -54,6 +54,14 @@ grep_cond_not_found_versions=$(i=0; for version in "${NOT_FOUND_VERSIONS[@]}"; d
 version_list=""
 url_list=""
 
+__checkOS () {
+  os=$(uname -s | tr "[:upper:]" "[:lower:]")
+  if [[ ${os:=null} != "${OS:?}" ]] ;then
+    Errorln "This OS is not supported: ${os:?}"
+    exit 1
+  fi
+}
+
 __commandRequired () {
   if CommandNotFound "${1:?}"; then
     Errorln "'${1:?}' is required"
@@ -62,6 +70,7 @@ __commandRequired () {
 }
 
 __init () {
+  __checkOS
   __commandRequired wget
   __commandRequired git
 
