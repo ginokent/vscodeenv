@@ -27,6 +27,7 @@ CommandNotFound () { ! command -v "${1:?"CommandNotFound: \$1 as command is requ
 
 # const
 PROG_NAME=vscodeenv
+VISUAL_STUDIO_CODE="Visual Studio Code"
 VSCODE_DOWNLOAD_URL_PREFIX="https://update.code.visualstudio.com"
 NOT_FOUND_VERSIONS=("0\.10\.1" "0\.10\.6" "1\.7\.0")  # NOTE: git ls-remote --tags https://github.com/microsoft/vscode | grep -Eo "refs/tags/[0-9]+\.[0-9]+\.[0-9]+$" | sed "s@refs/tags/\(.*\)@https://update.code.visualstudio.com/\1/darwin/stable@" | sort -V | while read -r LINE; do echo "$LINE $(curl -ILsS -o /dev/null -w "%{http_code}" $LINE)"; done | grep -v "200$"
 DATA_DIR="${HOME:?}/.${PROG_NAME:?}"
@@ -34,11 +35,14 @@ ARCHIVES_DIR="${DATA_DIR:?}/archives"
 HOME_TMP_DIR="${DATA_DIR:?}/tmp"
 BACKUP_DIR="${DATA_DIR:?}/backup"
 VERSION_REGEX="[0-9]+\.[0-9]+\.[0-9]+"
-UPDATE_URL="https://github.com/djeeno/${PROG_NAME:?}/releases/latest/download/${PROG_NAME:?}"
 UPDATE_DL_TMP="/tmp/.${PROG_NAME:?}.tmp"
 
-# const darwin
-VISUAL_STUDIO_CODE="Visual Studio Code"
+# env
+OS=darwin
+ARCH=amd64
+CHANNEL=stable
+VSCODE_DOWNLOAD_URL_SUFFIX="${OS:?}/${CHANNEL:?}"
+SELF_UPDATE_URL="https://github.com/djeeno/${PROG_NAME:?}/releases/latest/download/${PROG_NAME:?}-${OS:?}-${ARCH:?}"
 APPLICATIONS="/Applications"
 VISUAL_STUDIO_CODE_APP="${VISUAL_STUDIO_CODE:?}.app"
 APPLICATIONS_VISUAL_STUDIO_CODE_APP="${APPLICATIONS:?}/${VISUAL_STUDIO_CODE_APP:?}"
@@ -46,9 +50,6 @@ CODE_BIN="${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}/Contents/Resources/app/bin/co
 CODE_BIN_SYMBOLIC_LINK="/usr/local/bin/code"
 
 # var
-lower_uname_s=$(uname -s | tr "[:upper:]" "[:lower:]")
-channel="${CHANNEL:-stable}"
-vscode_download_url_suffix="${lower_uname_s:?}/${channel:?}"
 grep_cond_not_found_versions=$(i=0; for version in "${NOT_FOUND_VERSIONS[@]}"; do i=$((i+1)); echo -n "${version:?}"; [[ $i -ge ${#NOT_FOUND_VERSIONS[@]} ]] || echo -n "|"; done;)  # NOTE: like this: "0.10.1|0.10.6|1.7.0"
 version_list=""
 url_list=""
@@ -86,7 +87,7 @@ __getVersionList () {
 }
 
 __getURLList () {
-  [[ "${url_list-}" ]] || url_list=$(__getVersionList | awk "{print \"${VSCODE_DOWNLOAD_URL_PREFIX:?}/\"\$0\"/${vscode_download_url_suffix:?}\"}")
+  [[ "${url_list-}" ]] || url_list=$(__getVersionList | awk "{print \"${VSCODE_DOWNLOAD_URL_PREFIX:?}/\"\$0\"/${VSCODE_DOWNLOAD_URL_SUFFIX:?}\"}")
   echo "${url_list:?}"
 }
 
@@ -101,7 +102,7 @@ __getLatestVersion () {
 
 __getZipDestinationPath () {
   version="${1:?}"
-  printf "%s" "${ARCHIVES_DIR:?}/VSCode-${version:?}-${lower_uname_s:?}.zip"
+  printf "%s" "${ARCHIVES_DIR:?}/VSCode-${version:?}-${OS:?}.zip"
 }
 
 __extractVersionExit0 () {
@@ -304,7 +305,7 @@ __kill () {
 
 __selfUpdate () {
   Infoln "self update"
-  cmd="wget \"${UPDATE_URL:?}\" --output-document=\"${UPDATE_DL_TMP:?}\"; chmod -v +x \"${UPDATE_DL_TMP:?}\"; mv \"${UPDATE_DL_TMP:?}\" \"$0\""
+  cmd="wget \"${SELF_UPDATE_URL:?}\" --output-document=\"${UPDATE_DL_TMP:?}\"; chmod -v +x \"${UPDATE_DL_TMP:?}\"; mv \"${UPDATE_DL_TMP:?}\" \"$0\""
   if [[ -w $0 ]] || { [[ -w $(dirname "$0") ]] && [[ ! -e $0 ]]; }; then Run bash -c "${cmd:?}"; else Run sudo -u root bash -c "${cmd:?}"; fi
   Infoln "updated"
 }
