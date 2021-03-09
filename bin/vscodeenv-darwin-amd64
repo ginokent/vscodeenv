@@ -145,7 +145,7 @@ __mustGetVersion () {
     Errorln "check the available versions: $0 list"
     exit 1
   else
-    Infoln "no version was specified. use latest version"
+    Noticeln "no version was specified. use latest version"
     __getLatestVersion
   fi
 }
@@ -205,7 +205,7 @@ __generateInstallCommand () {
   currentVersion=$(__currentVersion)
 
   if "${CODE_BIN:?}" --help >/dev/null 2>&1; then
-    echo "${PROG_NAME:?} install ${currentVersion:?} --force"
+    echo "${PROG_NAME:?} install ${currentVersion:?}"
     return 0
   else
     echo "# !!! ${PROG_NAME:?} does not support to lock version on this ${VISUAL_STUDIO_CODE:?} version !!!"
@@ -250,17 +250,17 @@ __install () {
   source_url=$(__mustGetSpecificVersionURL "${version:?}")
   destination_path=$(__getZipDestinationPath "${version:?}")
 
+  Infoln "install '${VISUAL_STUDIO_CODE_APP:?}' version ${version:?}"
+
   if __existsApplicationsVisualStudioCodeApp; then
     Warnln "'${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}' already installed"
     __currentVersionExit0
     if ! [[ $* =~ (^|.*[^[:graph:]]+)(-f|--force)([^[:graph:]]+.*|$) ]]; then
       # If force option is false,
-      __launch
+      Noticeln "If you want to overwrite install, use '--force' option"
       return 0
     fi
   fi
-
-  Infoln "install '${VISUAL_STUDIO_CODE_APP:?}' version ${version:?}"
 
   # download and unzip
   __wget "${source_url:?}" "${destination_path:?}" --continue
