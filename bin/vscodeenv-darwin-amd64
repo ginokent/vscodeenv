@@ -46,8 +46,8 @@ SELF_UPDATE_URL="https://github.com/djeeno/${PROG_NAME:?}/releases/latest/downlo
 APPLICATIONS="/Applications"
 VISUAL_STUDIO_CODE_APP="${VISUAL_STUDIO_CODE:?}.app"
 APPLICATIONS_VISUAL_STUDIO_CODE_APP="${APPLICATIONS:?}/${VISUAL_STUDIO_CODE_APP:?}"
-CODE_BIN="${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}/Contents/Resources/app/bin/code"
-CODE_BIN_SYMBOLIC_LINK="/usr/local/bin/code"
+CODE_EXE="${APPLICATIONS_VISUAL_STUDIO_CODE_APP:?}/Contents/Resources/app/bin/code"
+CODE_EXE_SYMBOLIC_LINK="/usr/local/bin/code"
 
 # var
 grep_cond_not_found_versions=$(i=0; for version in "${NOT_FOUND_VERSIONS[@]}"; do i=$((i+1)); echo -n "${version:?}"; [[ $i -ge ${#NOT_FOUND_VERSIONS[@]} ]] || echo -n "|"; done;)  # NOTE: like this: "0.10.1|0.10.6|1.7.0"
@@ -119,7 +119,7 @@ __extractVersionExit0 () {
 }
 
 __currentVersion () {
-  __extractVersionExit0 "$("${CODE_BIN:?}" --version 2>/dev/null)"
+  __extractVersionExit0 "$("${CODE_EXE:?}" --version 2>/dev/null)"
 }
 
 __wget () {
@@ -172,15 +172,15 @@ __mustGetSpecificVersionURL () {
 }
 
 __createCodeBinSymbolicLink () {
-  if [[ -f "${CODE_BIN:?}" ]]; then
-    if [[ ! -L ${CODE_BIN_SYMBOLIC_LINK:?} ]] && [[ ! -f ${CODE_BIN_SYMBOLIC_LINK:?} ]]; then
-      Infoln "create symblic link '${CODE_BIN:?}' -> '${CODE_BIN_SYMBOLIC_LINK:?}'"
-      Run ln -sf "${CODE_BIN:?}" "${CODE_BIN_SYMBOLIC_LINK:?}"
-    elif [[ $(wc -c < "${CODE_BIN:?}") -eq $(wc -c < "${CODE_BIN_SYMBOLIC_LINK:?}") ]]; then
+  if [[ -f "${CODE_EXE:?}" ]]; then
+    if [[ ! -L ${CODE_EXE_SYMBOLIC_LINK:?} ]] && [[ ! -f ${CODE_EXE_SYMBOLIC_LINK:?} ]]; then
+      Infoln "create symblic link '${CODE_EXE:?}' -> '${CODE_EXE_SYMBOLIC_LINK:?}'"
+      Run ln -sf "${CODE_EXE:?}" "${CODE_EXE_SYMBOLIC_LINK:?}"
+    elif [[ $(wc -c < "${CODE_EXE:?}") -eq $(wc -c < "${CODE_EXE_SYMBOLIC_LINK:?}") ]]; then
       # If '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' size == '/usr/local/bin/code' size
       return 0
     else
-      Warnln "'${CODE_BIN_SYMBOLIC_LINK:?}' already exists"
+      Warnln "'${CODE_EXE_SYMBOLIC_LINK:?}' already exists"
     fi
   fi
 }
@@ -198,22 +198,22 @@ __launch () {
 
 __currentVersionExit0 () {
   Infoln "current version"
-  Run "${CODE_BIN:?}" --version || true
+  Run "${CODE_EXE:?}" --version || true
 }
 
 __hasOptionListExtensions () {
-  "${CODE_BIN:?}" --help 2>&1 | grep -q -- "--list-extensions"
+  "${CODE_EXE:?}" --help 2>&1 | grep -q -- "--list-extensions"
 }
 
 __hasOptionShowVersions () {
   # NOTE: '--show-versions' option -> 1.7.1 or later
-  "${CODE_BIN:?}" --help 2>&1 | grep -q -- "--show-versions"
+  "${CODE_EXE:?}" --help 2>&1 | grep -q -- "--show-versions"
 }
 
 __generateInstallCommand () {
   currentVersion=$(__currentVersion)
 
-  if "${CODE_BIN:?}" --help >/dev/null 2>&1; then
+  if "${CODE_EXE:?}" --help >/dev/null 2>&1; then
     echo "${PROG_NAME:?} install ${currentVersion:?}"
     return 0
   else
@@ -226,11 +226,11 @@ __generateExtensionsInstallCommands () {
   if __hasOptionListExtensions; then
     if __hasOptionShowVersions; then
       # --list-extensions AND --show-versions
-      "${CODE_BIN:?}" --list-extensions --show-versions | sort -V | awk "{print \"code --install-extension \"\$0\" --force\"}"
+      "${CODE_EXE:?}" --list-extensions --show-versions | sort -V | awk "{print \"'${CODE_EXE:?}' --install-extension \"\$0\" --force\"}"
       return $?
     fi
     # --list-extensions ONLY
-    "${CODE_BIN:?}" --list-extensions | sort -V | awk "{print \"code --install-extension \"\$0\" --force\"}"
+    "${CODE_EXE:?}" --list-extensions | sort -V | awk "{print \"'${CODE_EXE:?}' --install-extension \"\$0\" --force\"}"
     return $?
   else
     echo "# !!! ${PROG_NAME:?} does not support to lock the extensions version on this ${VISUAL_STUDIO_CODE:?} version !!!"
