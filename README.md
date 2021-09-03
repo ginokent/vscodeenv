@@ -7,7 +7,7 @@ Install fixed version Visual Studio Code and fixed version extensions in idempot
 # Installing
 
 ```bash
-wget https://github.com/djeeno/vscodeenv/releases/latest/download/vscodeenv-darwin-amd64 --output-document=/usr/local/bin/vscodeenv && chmod -v +x /usr/local/bin/vscodeenv
+wget https://github.com/newtstat/vscodeenv/releases/latest/download/vscodeenv-darwin-amd64 --output-document=/usr/local/bin/vscodeenv && chmod -v +x /usr/local/bin/vscodeenv
 ```
 
 # Usage
