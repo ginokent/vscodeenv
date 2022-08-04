@@ -39,10 +39,9 @@ UPDATE_DL_TMP="/tmp/.${PROG_NAME:?}.tmp"
 
 # env
 OS=darwin
-ARCH=amd64
 CHANNEL=stable
 VSCODE_DOWNLOAD_URL_SUFFIX="${OS:?}/${CHANNEL:?}"
-SELF_UPDATE_URL="https://github.com/newtstat/${PROG_NAME:?}/releases/latest/download/${PROG_NAME:?}-${OS:?}-${ARCH:?}"
+SELF_UPDATE_URL="https://raw.githubusercontent.com/ginokent/vscodeenv/HEAD/bin/${PROG_NAME:?}-${OS:?}"
 APPLICATIONS="/Applications"
 VISUAL_STUDIO_CODE_APP="${VISUAL_STUDIO_CODE:?}.app"
 APPLICATIONS_VISUAL_STUDIO_CODE_APP="${APPLICATIONS:?}/${VISUAL_STUDIO_CODE_APP:?}"
